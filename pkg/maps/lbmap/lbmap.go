@@ -53,8 +53,8 @@ func New() *LBBPFMap {
 //
 // The given prevBackendCount denotes a previous service backend entries count,
 // so that the function can remove obsolete ones.
-func (lbmap *LBBPFMap) UpsertService(
-	svcID uint16, svcIP net.IP, svcPort uint16,
+func (*LBBPFMap) UpsertService(
+	svcID uint16, svcIP net.IP, svcPort uint16, svcProto string,
 	backends map[string]uint16, prevBackendCount int,
 	ipv6 bool, svcType loadbalancer.SVCType, svcLocal bool,
 	svcScope uint8, sessionAffinity bool, sessionAffinityTimeoutSec uint32,
@@ -65,10 +65,14 @@ func (lbmap *LBBPFMap) UpsertService(
 		return fmt.Errorf("Invalid svc ID 0")
 	}
 
+	proto, err := u8proto.ParseProtocol(svcProto)
+	if err != nil {
+		return err
+	}
 	if ipv6 {
-		svcKey = NewService6Key(svcIP, svcPort, u8proto.ANY, svcScope, 0)
+		svcKey = NewService6Key(svcIP, svcPort, proto, svcScope, 0)
 	} else {
-		svcKey = NewService4Key(svcIP, svcPort, u8proto.ANY, svcScope, 0)
+		svcKey = NewService4Key(svcIP, svcPort, proto, svcScope, 0)
 	}
 
 	slot := 1
@@ -150,12 +154,16 @@ func (*LBBPFMap) DeleteService(svc loadbalancer.L3n4AddrID, backendCount int, us
 		return fmt.Errorf("Invalid svc ID 0")
 	}
 
+	proto, err := u8proto.ParseProtocol(string(svc.Protocol))
+	if err != nil {
+		return err
+	}
 	ipv6 := svc.IsIPv6()
 	if ipv6 {
-		svcKey = NewService6Key(svc.IP, svc.Port, u8proto.ANY, svc.Scope, 0)
+		svcKey = NewService6Key(svc.IP, svc.Port, proto, svc.Scope, 0)
 		revNATKey = NewRevNat6Key(uint16(svc.ID))
 	} else {
-		svcKey = NewService4Key(svc.IP, svc.Port, u8proto.ANY, svc.Scope, 0)
+		svcKey = NewService4Key(svc.IP, svc.Port, proto, svc.Scope, 0)
 		revNATKey = NewRevNat4Key(uint16(svc.ID))
 	}
 
@@ -180,7 +188,7 @@ func (*LBBPFMap) DeleteService(svc loadbalancer.L3n4AddrID, backendCount int, us
 }
 
 // AddBackend adds a backend into a BPF map.
-func (*LBBPFMap) AddBackend(id uint16, ip net.IP, port uint16, ipv6 bool) error {
+func (*LBBPFMap) AddBackend(id uint16, ip net.IP, protocol loadbalancer.L4Type, port uint16, ipv6 bool) error {
 	var (
 		backend Backend
 		err     error
@@ -190,10 +198,14 @@ func (*LBBPFMap) AddBackend(id uint16, ip net.IP, port uint16, ipv6 bool) error 
 		return fmt.Errorf("Invalid backend ID 0")
 	}
 
+	p, err := u8proto.ParseProtocol(string(protocol))
+	if err != nil {
+		return err
+	}
 	if ipv6 {
-		backend, err = NewBackend6(loadbalancer.BackendID(id), ip, port, u8proto.ANY)
+		backend, err = NewBackend6(loadbalancer.BackendID(id), ip, port, p)
 	} else {
-		backend, err = NewBackend4(loadbalancer.BackendID(id), ip, port, u8proto.ANY)
+		backend, err = NewBackend4(loadbalancer.BackendID(id), ip, port, p)
 	}
 	if err != nil {
 		return fmt.Errorf("Unable to create backend (%d, %s, %d, %t): %s",
@@ -447,7 +459,7 @@ func (*LBBPFMap) DumpBackendMaps() ([]*loadbalancer.Backend, error) {
 	for backendID, backendVal := range backendValueMap {
 		ip := backendVal.GetAddress()
 		port := backendVal.GetPort()
-		proto := loadbalancer.NONE
+		proto := loadbalancer.NewL4TypeFromNumber(backendVal.GetProtocol())
 		lbBackend := loadbalancer.NewBackend(backendID, proto, ip, port)
 		lbBackends = append(lbBackends, lbBackend)
 	}

@@ -38,7 +38,7 @@ func NewLBMockMap() *LBMockMap {
 	}
 }
 
-func (m *LBMockMap) UpsertService(id uint16, ip net.IP, port uint16,
+func (m *LBMockMap) UpsertService(id uint16, ip net.IP, port uint16, protocol string,
 	backends map[string]uint16, prevCount int, ipv6 bool, svcType lb.SVCType, svcLocal bool,
 	svcScope uint8, sessionAffinity bool, sessionAffinityTimeoutSec uint32, checkLBSrcRange bool,
 	maglev bool) error {
@@ -54,7 +54,7 @@ func (m *LBMockMap) UpsertService(id uint16, ip net.IP, port uint16,
 
 	svc, found := m.ServiceByID[id]
 	if !found {
-		frontend := lb.NewL3n4AddrID(lb.NONE, ip, port, svcScope, lb.ID(id))
+		frontend := lb.NewL3n4AddrID(lb.L4Type(protocol), ip, port, svcScope, lb.ID(id))
 		svc = &lb.SVC{Frontend: *frontend}
 	} else {
 		if prevCount != len(svc.Backends) {
@@ -85,12 +85,12 @@ func (m *LBMockMap) DeleteService(addr lb.L3n4AddrID, backendCount int, maglev b
 	return nil
 }
 
-func (m *LBMockMap) AddBackend(id uint16, ip net.IP, port uint16, ipv6 bool) error {
+func (m *LBMockMap) AddBackend(id uint16, ip net.IP, protocol lb.L4Type, port uint16, ipv6 bool) error {
 	if _, found := m.BackendByID[id]; found {
 		return fmt.Errorf("Backend %d already exists", id)
 	}
 
-	m.BackendByID[id] = lb.NewBackend(lb.BackendID(id), lb.NONE, ip, port)
+	m.BackendByID[id] = lb.NewBackend(lb.BackendID(id), protocol, ip, port)
 
 	return nil
 }

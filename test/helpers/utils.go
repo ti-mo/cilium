@@ -218,6 +218,7 @@ func GetAppPods(apps []string, namespace string, kubectl *Kubectl, appFmt string
 		res, err := kubectl.GetPodNames(namespace, fmt.Sprintf("%s=%s", appFmt, v))
 		Expect(err).Should(BeNil())
 		Expect(res).Should(Not(BeNil()))
+		Expect(res).Should(BeTrue(), len(res) > 0)
 		appPods[v] = res[0]
 		log.Infof("GetAppPods: pod=%q assigned to %q", res[0], v)
 	}

@@ -42,10 +42,10 @@ var (
 
 // LBMap is the interface describing methods for manipulating service maps.
 type LBMap interface {
-	UpsertService(uint16, net.IP, uint16, map[string]uint16, int, bool, lb.SVCType,
+	UpsertService(uint16, net.IP, uint16, string, map[string]uint16, int, bool, lb.SVCType,
 		bool, uint8, bool, uint32, bool, bool) error
 	DeleteService(lb.L3n4AddrID, int, bool) error
-	AddBackend(uint16, net.IP, uint16, bool) error
+	AddBackend(uint16, net.IP, lb.L4Type, uint16, bool) error
 	DeleteBackendByID(uint16, bool) error
 	AddAffinityMatch(uint16, uint16) error
 	DeleteAffinityMatch(uint16, uint16) error
@@ -674,6 +674,7 @@ func (s *Service) upsertServiceIntoLBMaps(svc *svcInfo, onlyLocalBackends bool,
 		}).Debug("Adding new backend")
 
 		if err := s.lbmap.AddBackend(uint16(b.ID), b.L3n4Addr.IP,
+			b.L3n4Addr.L4Addr.Protocol,
 			b.L3n4Addr.L4Addr.Port, ipv6); err != nil {
 			return err
 		}
@@ -687,7 +688,7 @@ func (s *Service) upsertServiceIntoLBMaps(svc *svcInfo, onlyLocalBackends bool,
 
 	err := s.lbmap.UpsertService(
 		uint16(svc.frontend.ID), svc.frontend.L3n4Addr.IP,
-		svc.frontend.L3n4Addr.L4Addr.Port,
+		svc.frontend.L3n4Addr.L4Addr.Port, string(svc.frontend.L3n4Addr.L4Addr.Protocol),
 		backends, prevBackendCount,
 		ipv6, svc.svcType, onlyLocalBackends,
 		svc.frontend.L3n4Addr.Scope,

@@ -391,7 +391,7 @@ func (rpm *Manager) filterBackends(fe *feMapping, backends ...backend) []backend
 	var newBackends []backend
 	for _, currBk := range fe.backends {
 		for _, removeBk := range backends {
-			if removeBk.StringWithProtocol() != currBk.StringWithProtocol() {
+			if removeBk.String() != currBk.String() {
 				newBackends = append(newBackends, currBk)
 			}
 		}

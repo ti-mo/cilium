@@ -602,15 +602,16 @@ func (k *K8sWatcher) delK8sSVCs(svc k8s.ServiceID, svcInfo *k8s.Service, se *k8s
 		logfields.K8sNamespace: svc.Namespace,
 	})
 
-	repPorts := svcInfo.UniquePorts()
+	uniqPorts := svcInfo.UniquePorts()
 
 	frontends := []*loadbalancer.L3n4Addr{}
 
 	for portName, svcPort := range svcInfo.Ports {
-		if !repPorts[svcPort.Port] {
+		pKey := svcPort.String()
+		if !uniqPorts[pKey] {
 			continue
 		}
-		repPorts[svcPort.Port] = false
+		uniqPorts[pKey] = false
 
 		fe := loadbalancer.NewL3n4Addr(svcPort.Protocol, svcInfo.FrontendIP, svcPort.Port, loadbalancer.ScopeExternal)
 		frontends = append(frontends, fe)
@@ -729,10 +730,11 @@ func datapathSVCs(svc *k8s.Service, endpoints *k8s.Endpoints) (svcs []loadbalanc
 
 	clusterIPPorts := map[loadbalancer.FEPortName]*loadbalancer.L4Addr{}
 	for fePortName, fePort := range svc.Ports {
-		if !uniqPorts[fePort.Port] {
+		pKey := fePort.String()
+		if !uniqPorts[pKey] {
 			continue
 		}
-		uniqPorts[fePort.Port] = false
+		uniqPorts[pKey] = false
 		clusterIPPorts[fePortName] = fePort
 	}
 	if svc.FrontendIP != nil {
@@ -842,6 +844,7 @@ func (k *K8sWatcher) addK8sSVCs(svcID k8s.ServiceID, oldSvc, svc *k8s.Service, e
 			Name:                      svcID.Name,
 			Namespace:                 svcID.Namespace,
 		}
+		log.WithField(logfields.Object, logfields.Repr(*p)).Debug("upserting loadbalancer repr")
 		if _, _, err := k.svcManager.UpsertService(p); err != nil {
 			scopedLog.WithError(err).Error("Error while inserting service in LB map")
 		}

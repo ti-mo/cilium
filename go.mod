@@ -75,6 +75,7 @@ require (
 	github.com/vishvananda/netlink v1.1.1-0.20200603190939-5a869a71f0cb
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
+	go.uber.org/atomic v1.4.0
 	go.uber.org/goleak v1.0.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/net v0.0.0-20200707034311-ab3426394381

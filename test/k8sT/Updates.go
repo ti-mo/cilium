@@ -15,6 +15,7 @@
 package k8sTest
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 
 	. "github.com/cilium/cilium/test/ginkgo-ext"
 	"github.com/cilium/cilium/test/helpers"
+	"go.uber.org/atomic"
 
 	. "github.com/onsi/gomega"
 )
@@ -142,6 +144,8 @@ func InstallAndValidateCiliumUpgrades(kubectl *helpers.Kubectl, oldHelmChartVers
 	var (
 		privateIface string // only used when running w/o kube-proxy
 		err          error
+		apps         = []string{helpers.App1, helpers.App2, helpers.App3}
+		app1Service  = "app1-service"
 	)
 
 	canRun, err := helpers.CanRunK8sVersion(oldImageVersion, helpers.GetCurrentK8SEnv())
@@ -159,9 +163,6 @@ func InstallAndValidateCiliumUpgrades(kubectl *helpers.Kubectl, oldHelmChartVers
 		privateIface, err = kubectl.GetPrivateIface()
 		ExpectWithOffset(1, err).To(BeNil(), "Unable to determine private iface")
 	}
-
-	apps := []string{helpers.App1, helpers.App2, helpers.App3}
-	app1Service := "app1-service"
 
 	cleanupCiliumState := func(helmPath, chartVersion, imageName, imageTag, registry string) {
 		removeCilium(kubectl)
@@ -232,6 +233,24 @@ func InstallAndValidateCiliumUpgrades(kubectl *helpers.Kubectl, oldHelmChartVers
 
 	testfunc := func() {
 		By("Deleting Cilium and CoreDNS...")
+
+		// Create a persistent connection to test that it persists
+		// across cilium reloads.
+		var persistenConnEC atomic.Int64
+		persistCtx, persistCancel := context.WithCancel(context.Background())
+		defer persistCancel()
+		appPods := helpers.GetAppPods(apps, helpers.DefaultNamespace, kubectl, "id")
+		pod, ok := appPods[helpers.App2]
+		Expect(ok, BeTrue(), fmt.Sprintf("pod for %q app not found", helpers.App2))
+		cmd := kubectl.ExecPodCmdBackground(persistCtx,
+			helpers.DefaultNamespace, pod,
+			helpers.NetcatNoTimeout(app1Service))
+		go func() {
+			defer GinkgoRecover()
+			cmd.WaitUntilFinish()
+			persistenConnEC.Store(int64(cmd.GetExitCode()))
+		}()
+
 		// Making sure that we deleted the  cilium ds. No assert
 		// message because maybe is not present
 		if res := kubectl.DeleteResource("ds", fmt.Sprintf("-n %s cilium", helpers.CiliumNamespace)); !res.WasSuccessful() {
@@ -459,7 +478,7 @@ func InstallAndValidateCiliumUpgrades(kubectl *helpers.Kubectl, oldHelmChartVers
 
 		// Once they are installed we can remove it
 		By("Removing Cilium pre-flight check DaemonSet")
-		cmd := kubectl.ExecMiddle("helm delete cilium-preflight --namespace=" + helpers.CiliumNamespace)
+		cmd = kubectl.ExecMiddle("helm delete cilium-preflight --namespace=" + helpers.CiliumNamespace)
 		ExpectWithOffset(1, cmd).To(helpers.CMDSuccess(), "Unable to delete preflight")
 
 		err = kubectl.WaitForCiliumReadiness()
@@ -546,6 +565,8 @@ func InstallAndValidateCiliumUpgrades(kubectl *helpers.Kubectl, oldHelmChartVers
 		nbMissedTailCalls, err = kubectl.CountMissedTailCalls()
 		ExpectWithOffset(1, err).Should(BeNil(), "Failed to retrieve number of missed tail calls")
 		ExpectWithOffset(1, nbMissedTailCalls).To(BeNumerically("==", 0))
+
+		Expect(int(persistenConnEC.Load())).Should(Equal(0), "persistent tcp connection died in reload")
 	}
 	return testfunc, cleanupCallback
 }

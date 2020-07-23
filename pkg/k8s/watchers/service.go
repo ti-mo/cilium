@@ -19,6 +19,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/core/v1"
 	"github.com/cilium/cilium/pkg/lock"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 
 	v1 "k8s.io/api/core/v1"
 	v1meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,8 @@ func (k *K8sWatcher) servicesInit(k8sClient kubernetes.Interface, swgSvcs *lock.
 				var valid, equal bool
 				defer func() { k.K8sEventReceived(metricService, metricCreate, valid, equal) }()
 				if k8sSvc := k8s.ObjToV1Services(obj); k8sSvc != nil {
+					log.WithField(logfields.Object, logfields.Repr(*k8sSvc)).
+						Debug("Received new service object to add")
 					valid = true
 					err := k.addK8sServiceV1(k8sSvc, swgSvcs)
 					k.K8sEventProcessed(metricService, metricCreate, err == nil)
@@ -53,7 +56,8 @@ func (k *K8sWatcher) servicesInit(k8sClient kubernetes.Interface, swgSvcs *lock.
 							equal = true
 							return
 						}
-
+						log.WithField(logfields.Object, logfields.Repr(*newk8sSvc)).
+							Debug("Received service object update")
 						err := k.updateK8sServiceV1(oldk8sSvc, newk8sSvc, swgSvcs)
 						k.K8sEventProcessed(metricService, metricUpdate, err == nil)
 					}
@@ -66,7 +70,8 @@ func (k *K8sWatcher) servicesInit(k8sClient kubernetes.Interface, swgSvcs *lock.
 				if k8sSvc == nil {
 					return
 				}
-
+				log.WithField(logfields.Object, logfields.Repr(*k8sSvc)).
+					Debug("Received service object to delete")
 				valid = true
 				err := k.deleteK8sServiceV1(k8sSvc, swgSvcs)
 				k.K8sEventProcessed(metricService, metricDelete, err == nil)

@@ -150,6 +150,16 @@ func Netcat(endpoint string, optionalValues ...interface{}) string {
 	return fmt.Sprintf("nc -w 4 %s", endpoint)
 }
 
+// NetcatNoTimeout returns the string representing the netcat command to the specified
+// endpoint. It takes a variadic optionalValues arguments, This is passed to
+// fmt.Sprintf uses in the netcat message. It does not have a timeout value.
+func NetcatNoTimeout(endpoint string, optionalValues ...interface{}) string {
+	if len(optionalValues) > 0 {
+		endpoint = fmt.Sprintf(endpoint, optionalValues...)
+	}
+	return fmt.Sprintf("nc %s", endpoint)
+}
+
 // PythonBind returns the string representing a python3 command which will try
 // to bind a socket on the given address and port. Python is available in the
 // log-gatherer pod.
