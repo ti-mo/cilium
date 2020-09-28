@@ -1,3 +1,5 @@
+.. _enable_hubble:
+
 Enable Hubble
 ==============
 
@@ -95,6 +97,8 @@ networking infrastructure in a completely transparent manner.
       kubectl port-forward -n $CILIUM_NAMESPACE svc/hubble-ui --address 0.0.0.0 --address :: 12000:80
 
   and then open http://localhost:12000/.
+
+.. _hubble_custom_tls_certs:
 
 Use custom TLS certificates in distributed mode (optional)
 ----------------------------------------------------------
