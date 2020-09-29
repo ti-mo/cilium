@@ -842,6 +842,9 @@ const (
 	// K8sServiceProxyName instructs Cilium to handle service objects only when
 	// service.kubernetes.io/service-proxy-name label equals the provided value.
 	K8sServiceProxyName = "k8s-service-proxy-name"
+
+	// RateLimitName enables configuration of the API rate limits
+	RateLimitName = "rate-limit"
 )
 
 // HelpFlagSections to format the Cilium Agent help template.
@@ -1976,6 +1979,9 @@ type DaemonConfig struct {
 	// the label is not present. For more details -
 	// https://github.com/kubernetes/enhancements/blob/master/keps/sig-network/0031-20181017-kube-proxy-services-optional.md
 	K8sServiceProxyName string
+
+	// RateLimitName enables configuration of the API rate limits
+	RateLimit map[string]string
 }
 
 var (
@@ -2643,6 +2649,10 @@ func (c *DaemonConfig) Populate() {
 			log.Warningf("Running Cilium with %q=%q requires KVStore capability. Changing %s to %t", KVStore, c.KVStore, K8sEventHandover, false)
 			c.K8sEventHandover = false
 		}
+	}
+
+	if m := viper.GetStringMapString(RateLimitName); len(m) != 0 {
+		c.RateLimit = m
 	}
 
 	switch c.IPAM {

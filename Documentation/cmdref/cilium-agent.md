@@ -187,6 +187,7 @@ cilium-agent [flags]
       --prometheus-serve-addr string                  IP:Port on which to serve prometheus metrics (pass ":Port" to bind on all interfaces, "" is off)
       --proxy-connect-timeout uint                    Time after which a TCP connect attempt is considered failed unless completed (in seconds) (default 1)
       --proxy-prometheus-port int                     Port to serve Envoy metrics on. Default 0 (disabled).
+      --rate-limit map                                Rate limiting configuration (example: --rate-limit endpoint-create=rate-limit:10/m,rate-burst:2) (default map[])
       --read-cni-conf string                          Read to the CNI configuration at specified path to extract per node configuration
       --restore                                       Restores state, if possible, from previous daemon (default true)
       --sidecar-istio-proxy-image string              Regular expression matching compatible Istio sidecar istio-proxy container image names (default "cilium/istio_proxy")
