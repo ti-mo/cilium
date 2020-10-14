@@ -17,6 +17,7 @@
 #include "common.h"
 #include "utils.h"
 #include "metrics.h"
+#include "eps.h"
 
 /* Available observation points. */
 enum {
@@ -247,6 +248,72 @@ send_trace_notify6(struct __ctx_buff *ctx, __u8 obs_point, __u32 src, __u32 dst,
 			 (cap_len << 32) | BPF_F_CURRENT_CPU,
 			 &msg, sizeof(msg));
 }
+
+/*
+ * trace_monitor_lookup4 looks up an IPv4 packet's source or destination
+ * address in the ipcache, but only if a trace needs to be sent for the
+ * packet.
+ *
+ * @arg ctx		The packet
+ * @arg dest		Return destination ID when true, source ID when false.
+ * @arg obs_point	Observation point the resulting ID will be traced with;
+ *				TRACE_TO_HOST, TRACE_TO_STACK, etc.
+ * @arg monitor		Monitor aggregation value for the packet. Determines
+ *				whether or not a trace needs to be emitted.
+ */
+static __always_inline __u32 trace_monitor_lookup4(struct __ctx_buff *ctx,
+						   bool dest, __u8 obs_point, __u32 monitor)
+{
+	struct remote_endpoint_info *info = NULL;
+	void *data, *data_end;
+	struct iphdr *ip4;
+	__u32 sec_id = 0;
+
+	if (!emit_trace_notify(obs_point, monitor))
+		return sec_id;
+
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return sec_id;
+
+	info = lookup_ip4_remote_endpoint(dest ? ip4->daddr : ip4->saddr);
+	if (info && info->sec_label)
+		sec_id = info->sec_label;
+
+	return sec_id;
+}
+
+/*
+ * trace_monitor_lookup6 looks up an IPv6 packet's source or destination
+ * address in the ipcache, but only if a trace needs to be sent for the
+ * packet.
+ *
+ * @arg ctx		The packet
+ * @arg dest		Return destination ID when true, source ID when false.
+ * @arg obs_point	Observation point the resulting ID will be traced with;
+ *				TRACE_TO_HOST, TRACE_TO_STACK, etc.
+ * @arg monitor		Monitor aggregation value for the packet. Determines
+ *				whether or not a trace needs to be emitted.
+ */
+static __always_inline __u32 trace_monitor_lookup6(struct __ctx_buff *ctx,
+						   bool dest, __u8 obs_point, __u32 monitor)
+{
+	struct remote_endpoint_info *info = NULL;
+	void *data, *data_end;
+	struct ipv6hdr *ip6;
+	__u32 sec_id = 0;
+
+	if (!emit_trace_notify(obs_point, monitor))
+		return sec_id;
+
+	if (!revalidate_data(ctx, &data, &data_end, &ip6))
+		return sec_id;
+
+	info = lookup_ip6_remote_endpoint((union v6addr *)(dest ? &ip6->daddr : &ip6->saddr));
+	if (info && info->sec_label)
+		sec_id = info->sec_label;
+
+	return sec_id;
+}
 #else
 static __always_inline void
 send_trace_notify(struct __ctx_buff *ctx, __u8 obs_point,
@@ -275,6 +342,20 @@ send_trace_notify6(struct __ctx_buff *ctx, __u8 obs_point,
 		   __u8 reason, __u32 monitor __maybe_unused)
 {
 	update_trace_metrics(ctx, obs_point, reason);
+}
+
+static __always_inline __u32 trace_monitor_lookup4(struct __ctx_buff *ctx
+		   __maybe_unused, bool dest __maybe_unused, __u8 obs_point __maybe_unused,
+		   __u32 monitor __maybe_unused)
+{
+	return 0;
+}
+
+static __always_inline __u32 trace_monitor_lookup6(struct __ctx_buff *ctx
+		   __maybe_unused, bool dest __maybe_unused, __u8 obs_point __maybe_unused,
+		   __u32 monitor __maybe_unused)
+{
+	return 0;
 }
 #endif /* TRACE_NOTIFY */
 #endif /* __LIB_TRACE__ */

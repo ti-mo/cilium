@@ -964,7 +964,7 @@ int to_netdev(struct __ctx_buff *ctx __maybe_unused)
 {
 	__u32 __maybe_unused src_id = 0;
 	__u16 __maybe_unused proto = 0;
-	__u32 monitor = 0;
+	__u32 dst_id = 0, monitor = 0;
 	int ret = CTX_ACT_OK;
 
 #ifdef ENABLE_HOST_FIREWALL
@@ -1019,6 +1019,12 @@ out:
 	 defined(ENABLE_MASQUERADE))
 	if ((ctx->mark & MARK_MAGIC_SNAT_DONE) != MARK_MAGIC_SNAT_DONE) {
 		/*
+		 * Store monitor aggregation value for use in NAT tail calls,
+		 * since they don't have any CT information in scope.
+		 */
+		ctx_store_meta(ctx, CB_CT_MONITOR, monitor);
+
+		/*
 		 * nodeport_nat_fwd tail calls in the majority of cases,
 		 * so control might never return to this program.
 		 */
@@ -1029,8 +1035,12 @@ out:
 						      METRIC_EGRESS);
 	}
 #endif
-	send_trace_notify(ctx, TRACE_TO_NETWORK, src_id, 0, 0,
-			  0, ret, monitor);
+
+	/* Trace packets destined for the wire when SNAT didn't take place. */
+	dst_id = trace_monitor_lookup4(ctx, true, TRACE_TO_NETWORK, monitor);
+	send_trace_notify(ctx, TRACE_TO_NETWORK, HOST_ID, dst_id,
+			  0, 0, ret, monitor);
+
 	return ret;
 }
 

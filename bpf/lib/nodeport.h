@@ -188,13 +188,20 @@ static __always_inline int nodeport_nat_ipv6_fwd(struct __ctx_buff *ctx,
 		.max_port = NODEPORT_PORT_MAX_NAT,
 	};
 	int ret;
+	__u32 dst_id = 0;
+	__u32 monitor = ctx_load_meta(ctx, CB_CT_MONITOR);
 
 	ipv6_addr_copy(&target.addr, addr);
 
 	ret = snat_v6_needed(ctx, addr) ?
 	      snat_v6_process(ctx, NAT_DIR_EGRESS, &target) : CTX_ACT_OK;
+
 	if (ret == NAT_PUNT_TO_STACK)
 		ret = CTX_ACT_OK;
+
+	dst_id = trace_monitor_lookup6(ctx, true, TRACE_TO_NETWORK, monitor);
+	send_trace_notify(ctx, TRACE_TO_NETWORK, HOST_ID, dst_id, 0, 0, ret, monitor);
+
 	return ret;
 }
 
@@ -897,12 +904,18 @@ static __always_inline int nodeport_nat_ipv4_fwd(struct __ctx_buff *ctx,
 		.addr = addr,
 	};
 	int ret = CTX_ACT_OK;
+	__u32 dst_id = 0;
+	__u32 monitor = ctx_load_meta(ctx, CB_CT_MONITOR);
 
 	if (snat_v4_needed(ctx, addr, &from_endpoint))
 		ret = snat_v4_process(ctx, NAT_DIR_EGRESS, &target,
 				      from_endpoint);
+
 	if (ret == NAT_PUNT_TO_STACK)
 		ret = CTX_ACT_OK;
+
+	dst_id = trace_monitor_lookup4(ctx, true, TRACE_TO_NETWORK, monitor);
+	send_trace_notify(ctx, TRACE_TO_NETWORK, HOST_ID, dst_id, 0, 0, ret, monitor);
 
 	return ret;
 }
@@ -1512,6 +1525,7 @@ static __always_inline int nodeport_nat_fwd(struct __ctx_buff *ctx)
 
 	if (!validate_ethertype(ctx, &proto))
 		return CTX_ACT_OK;
+
 	switch (proto) {
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
@@ -1533,6 +1547,7 @@ static __always_inline int nodeport_nat_fwd(struct __ctx_buff *ctx)
 		build_bug_on(!(NODEPORT_PORT_MAX     < NODEPORT_PORT_MIN_NAT));
 		break;
 	}
+
 	return ret;
 }
 
