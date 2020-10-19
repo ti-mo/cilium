@@ -1031,12 +1031,12 @@ int to_host(struct __ctx_buff *ctx)
 	__u16 __maybe_unused proto = 0;
 	int ret = CTX_ACT_OK;
 	bool traced = false;
-	__u32 srcID = 0;
+	__u32 src_id = 0;
 
 	if ((magic & MARK_MAGIC_HOST_MASK) == MARK_MAGIC_ENCRYPT) {
 		ctx->mark = magic; /* CB_ENCRYPT_MAGIC */
-		srcID = ctx_load_meta(ctx, CB_ENCRYPT_IDENTITY);
-		set_identity_mark(ctx, srcID);
+		src_id = ctx_load_meta(ctx, CB_ENCRYPT_IDENTITY);
+		set_identity_mark(ctx, src_id);
 	} else if ((magic & 0xFFFF) == MARK_MAGIC_TO_PROXY) {
 		/* Upper 16 bits may carry proxy port number */
 		__be16 port = magic >> 16;
@@ -1050,10 +1050,6 @@ int to_host(struct __ctx_buff *ctx)
 		 */
 		traced = true;
 	}
-
-	if (!traced)
-		send_trace_notify(ctx, TRACE_TO_STACK, srcID, 0, 0,
-				  CILIUM_IFINDEX, ret, 0);
 
 #ifdef ENABLE_HOST_FIREWALL
 	if (!validate_ethertype(ctx, &proto)) {
@@ -1071,12 +1067,12 @@ int to_host(struct __ctx_buff *ctx)
 # endif
 # ifdef ENABLE_IPV6
 	case bpf_htons(ETH_P_IPV6):
-		ret = ipv6_host_policy_ingress(ctx, &srcID);
+		ret = ipv6_host_policy_ingress(ctx, &src_id);
 		break;
 # endif
 # ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
-		ret = ipv4_host_policy_ingress(ctx, &srcID);
+		ret = ipv4_host_policy_ingress(ctx, &src_id);
 		break;
 # endif
 	default:
@@ -1089,8 +1085,12 @@ int to_host(struct __ctx_buff *ctx)
 
 out:
 	if (IS_ERR(ret))
-		return send_drop_notify_error(ctx, srcID, ret, CTX_ACT_DROP,
+		return send_drop_notify_error(ctx, src_id, ret, CTX_ACT_DROP,
 					      METRIC_INGRESS);
+
+	if (!traced)
+		send_trace_notify(ctx, TRACE_TO_STACK, src_id, 0, 0,
+				  CILIUM_IFINDEX, ret, 0);
 
 	return ret;
 }
