@@ -817,20 +817,16 @@ static __always_inline bool nodeport_uses_dsr4(const struct ipv4_ct_tuple *tuple
 }
 
 /* Returns true if the packet must be SNAT-ed */
-static __always_inline bool snat_v4_needed(struct __ctx_buff *ctx, __be32 addr,
+static __always_inline bool snat_v4_needed(struct iphdr *ip4, __be32 saddr,
 					   bool *from_endpoint __maybe_unused)
 {
 	struct endpoint_info *ep __maybe_unused;
-	void *data, *data_end;
-	struct iphdr *ip4;
 
-	if (!revalidate_data(ctx, &data, &data_end, &ip4))
-		return false;
 	/* Basic minimum is to only NAT when there is a potential of
 	 * overlapping tuples, e.g. applications in hostns reusing
 	 * source IPs we SNAT in node-port.
 	 */
-	if (ip4->saddr == addr)
+	if (ip4->saddr == saddr)
 		return true;
 
 #ifdef ENABLE_MASQUERADE /* SNAT local pod to world packets */
@@ -895,26 +891,37 @@ static __always_inline bool snat_v4_needed(struct __ctx_buff *ctx, __be32 addr,
 }
 
 static __always_inline int nodeport_nat_ipv4_fwd(struct __ctx_buff *ctx,
-						 const __be32 addr)
+						 const __be32 saddr)
 {
 	bool from_endpoint = false;
 	struct ipv4_nat_target target = {
 		.min_port = NODEPORT_PORT_MIN_NAT,
 		.max_port = NODEPORT_PORT_MAX_NAT,
-		.addr = addr,
+		.addr = saddr,
 	};
+	void *data, *data_end;
+	struct iphdr *ip4;
 	int ret = CTX_ACT_OK;
+
 	__u32 dst_id = 0;
 	__u32 monitor = ctx_load_meta(ctx, CB_CT_MONITOR);
 
-	if (snat_v4_needed(ctx, addr, &from_endpoint))
-		ret = snat_v4_process(ctx, NAT_DIR_EGRESS, &target,
-				      from_endpoint);
+	/*
+	 * Avoid calling revalidate in any downstream logic from here on out,
+	 * as it is expensive. We run it once here and pass on the results
+	 * to downstream methods.
+	 */
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
+
+	if (snat_v4_needed(ip4, saddr, &from_endpoint))
+		ret = snat_v4_process(ctx, ip4, data, NAT_DIR_EGRESS,
+				      &target, from_endpoint);
 
 	if (ret == NAT_PUNT_TO_STACK)
 		ret = CTX_ACT_OK;
 
-	dst_id = trace_monitor_lookup4(ctx, true, TRACE_TO_NETWORK, monitor);
+	dst_id = trace_monitor_lookup4(ip4->daddr, TRACE_TO_NETWORK, monitor);
 	send_trace_notify(ctx, TRACE_TO_NETWORK, HOST_ID, dst_id, 0, 0, ret, monitor);
 
 	return ret;
@@ -1107,15 +1114,16 @@ int tail_nodeport_nat_ipv4(struct __ctx_buff *ctx)
 	void *data, *data_end;
 	struct iphdr *ip4;
 
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
+
 	target.addr = IPV4_DIRECT_ROUTING;
+
 #ifdef ENCAP_IFINDEX
 	if (dir == NAT_DIR_EGRESS) {
 		struct remote_endpoint_info *info;
-
-		if (!revalidate_data(ctx, &data, &data_end, &ip4))
-			return DROP_INVALID;
-
 		info = ipcache_lookup4(&IPCACHE_MAP, ip4->daddr, V4_CACHE_KEY_LEN);
+
 		if (info != NULL && info->tunnel_endpoint != 0) {
 			ret = __encap_with_nodeid(ctx, info->tunnel_endpoint,
 						  SECLABEL, TRACE_PAYLOAD_LEN);
@@ -1130,10 +1138,19 @@ int tail_nodeport_nat_ipv4(struct __ctx_buff *ctx)
 				return DROP_WRITE_ERROR;
 			if (eth_store_saddr(ctx, fib_params.l.smac, 0) < 0)
 				return DROP_WRITE_ERROR;
+
+			/*
+			 * Revalidate references since the packet data has been resized
+			 * by the encap operation. Otherwise, further uses of 'ip4' in
+			 * this function will fail.
+			 */
+			if (!revalidate_data(ctx, &data, &data_end, &ip4))
+				return DROP_INVALID;
 		}
 	}
 #endif
-	ret = snat_v4_process(ctx, dir, &target, false);
+
+	ret = snat_v4_process(ctx, ip4, data, dir, &target, false);
 	if (IS_ERR(ret)) {
 		/* In case of no mapping, recircle back to main path. SNAT is very
 		 * expensive in terms of instructions (since we don't have BPF to

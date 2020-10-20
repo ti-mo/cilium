@@ -498,15 +498,14 @@ static __always_inline __maybe_unused int snat_v4_create_dsr(struct __ctx_buff *
 	return CTX_ACT_OK;
 }
 
-static __always_inline __maybe_unused int snat_v4_process(struct __ctx_buff *ctx, int dir,
+static __always_inline __maybe_unused int snat_v4_process(struct __ctx_buff *ctx,
+						const struct iphdr *ip4, const void *data, int dir,
 						const struct ipv4_nat_target *target,
 						bool from_endpoint)
 {
 	struct icmphdr icmphdr __align_stack_8;
 	struct ipv4_nat_entry *state, tmp;
 	struct ipv4_ct_tuple tuple = {};
-	void *data, *data_end;
-	struct iphdr *ip4;
 	struct {
 		__be16 sport;
 		__be16 dport;
@@ -515,9 +514,6 @@ static __always_inline __maybe_unused int snat_v4_process(struct __ctx_buff *ctx
 	int ret;
 
 	build_bug_on(sizeof(struct ipv4_nat_entry) > 64);
-
-	if (!revalidate_data(ctx, &data, &data_end, &ip4))
-		return DROP_INVALID;
 
 	tuple.nexthdr = ip4->protocol;
 	tuple.daddr = ip4->daddr;
@@ -565,7 +561,8 @@ static __always_inline __maybe_unused int snat_v4_process(struct __ctx_buff *ctx
 #else
 static __always_inline __maybe_unused
 int snat_v4_process(struct __ctx_buff *ctx __maybe_unused,
-		    int dir __maybe_unused,
+		    const struct iphdr *ip4 __maybe_unused, const void *data __maybe_unused,
+				int dir __maybe_unused,
 		    const struct ipv4_nat_target *target __maybe_unused,
 		    bool from_endpoint __maybe_unused)
 {

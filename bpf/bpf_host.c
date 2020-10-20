@@ -609,10 +609,9 @@ int tail_handle_ipv4_from_netdev(struct __ctx_buff *ctx)
 
 #ifdef ENABLE_HOST_FIREWALL
 static __always_inline int
-handle_to_netdev_ipv4(struct __ctx_buff *ctx, __u32 *monitor)
+handle_to_netdev_ipv4(struct __ctx_buff *ctx, struct iphdr **ip4, __u32 *monitor)
 {
 	void *data, *data_end;
-	struct iphdr *ip4;
 	__u32 src_id = 0, ipcache_srcid = 0;
 
 	if ((ctx->mark & MARK_MAGIC_HOST_MASK) == MARK_MAGIC_HOST)
@@ -620,7 +619,7 @@ handle_to_netdev_ipv4(struct __ctx_buff *ctx, __u32 *monitor)
 
 	src_id = resolve_srcid_ipv4(ctx, src_id, &ipcache_srcid, true);
 
-	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+	if (!revalidate_data(ctx, &data, &data_end, ip4))
 		return DROP_INVALID;
 
 	/* We need to pass the srcid from ipcache to host firewall. See
@@ -962,6 +961,7 @@ int from_host(struct __ctx_buff *ctx)
 __section("to-netdev")
 int to_netdev(struct __ctx_buff *ctx __maybe_unused)
 {
+	struct iphdr *ip4;
 	__u32 __maybe_unused src_id = 0;
 	__u16 __maybe_unused proto = 0;
 	__u32 dst_id = 0, monitor = 0;
@@ -988,7 +988,8 @@ int to_netdev(struct __ctx_buff *ctx __maybe_unused)
 # endif
 # ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP): {
-		ret = handle_to_netdev_ipv4(ctx, &monitor);
+		ret = handle_to_netdev_ipv4(ctx, &ip4, &monitor);
+		dst_id = trace_monitor_lookup4(ip4->daddr, TRACE_TO_NETWORK, monitor);
 		break;
 	}
 # endif
@@ -1037,7 +1038,6 @@ out:
 #endif
 
 	/* Trace packets destined for the wire when SNAT didn't take place. */
-	dst_id = trace_monitor_lookup4(ctx, true, TRACE_TO_NETWORK, monitor);
 	send_trace_notify(ctx, TRACE_TO_NETWORK, HOST_ID, dst_id,
 			  0, 0, ret, monitor);
 
