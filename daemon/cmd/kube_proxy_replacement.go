@@ -579,6 +579,7 @@ func finishKubeProxyReplacementInit(isKubeProxyReplacementStrict bool) error {
 			// in a form "$IFACE_NAME1=$IPV{4,6}_ADDR1;$IFACE_NAME2=...",
 			// we need to restrict the iface names. Otherwise, bpf/init.sh
 			// won't properly parse the mappings.
+			// TODO(timo): This check can be removed after the init.sh Go rewrite.
 			return fmt.Errorf("%s link name contains '=' or ';' character which is not allowed",
 				iface)
 		}

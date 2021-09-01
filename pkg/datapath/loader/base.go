@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cilium/cilium/pkg/bpf"
@@ -53,11 +54,10 @@ const (
 	initArgBpffsRoot
 	initArgNodePort
 	initArgNodePortBind
-	initBPFCPU
+	initArgBPFCPU
 	initArgNrCPUs
 	initArgEndpointRoutes
 	initArgProxyRule
-	initArgMax
 )
 
 // firstInitialization is true when Reinitialize() is called for the first
@@ -228,8 +228,6 @@ func (l *Loader) ReinitializeXDP(ctx context.Context, o datapath.BaseProgramOwne
 // locally detected prefixes. It may be run upon initial Cilium startup, after
 // restore from a previous Cilium run, or during regular Cilium operation.
 func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, deviceMTU int, iptMgr datapath.IptablesManager, p datapath.Proxy) error {
-	args := make([]string, initArgMax)
-
 	sysSettings := []sysctl.Setting{
 		{Name: "net.core.bpf_jit_enable", Val: "1", IgnoreErr: true},
 		{Name: "net.ipv4.conf.all.rp_filter", Val: "0", IgnoreErr: false},
@@ -244,11 +242,13 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 
 	l.init(o.Datapath(), o.LocalConfig())
 
+	// TODO(timo): What's a 'netdev header'?
 	if err := l.writeNetdevHeader("./", o); err != nil {
 		log.WithError(err).Warn("Unable to write netdev header")
 		return err
 	}
 
+	// TODO(timo): What is a 'prefilter'? Is a Cilium subcommand, but looks undocumented.
 	if option.Config.DevicePreFilter != "undefined" {
 		scopedLog := log.WithField(logfields.XDPDevice, option.Config.XDPDevice)
 
@@ -266,15 +266,31 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		o.SetPrefilter(preFilter)
 	}
 
-	args[initArgLib] = option.Config.BpfDir
-	args[initArgRundir] = option.Config.StateDir
-	args[initArgCgroupRoot] = cgroups.GetCgroupRoot()
-	args[initArgBpffsRoot] = bpf.GetMapRoot()
+	// Build arguments for the ELF loader.
+	args := []string{
+		initArgLib:                       option.Config.BpfDir,
+		initArgRundir:                    option.Config.StateDir,
+		initArgIPv4NodeIP:                "<nil>",
+		initArgIPv6NodeIP:                "<nil>",
+		initArgMode:                      string(directMode),
+		initArgTunnelMode:                "<nil>",
+		initArgDevices:                   "<nil>",
+		initArgMTU:                       strconv.Itoa(deviceMTU),
+		initArgHostReachableServices:     "false",
+		initArgHostReachableServicesUDP:  "false",
+		initArgHostReachableServicesPeer: "false",
+		initArgCgroupRoot:                cgroups.GetCgroupRoot(),
+		initArgBpffsRoot:                 bpf.GetMapRoot(),
+		initArgNodePort:                  "false",
+		initArgNodePortBind:              "false",
+		initArgBPFCPU:                    GetBPFCPU(),
+		initArgNrCPUs:                    strconv.Itoa(common.GetNumPossibleCPUs(log)),
+		initArgEndpointRoutes:            "false",
+		initArgProxyRule:                 "false",
+	}
 
 	if option.Config.EnableIPv4 {
 		args[initArgIPv4NodeIP] = node.GetInternalIPv4Router().String()
-	} else {
-		args[initArgIPv4NodeIP] = "<nil>"
 	}
 
 	if option.Config.EnableIPv6 {
@@ -284,28 +300,18 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		// Enable IPv6 for now
 		sysSettings = append(sysSettings,
 			sysctl.Setting{Name: "net.ipv6.conf.all.disable_ipv6", Val: "0", IgnoreErr: false})
-	} else {
-		args[initArgIPv6NodeIP] = "<nil>"
 	}
-
-	args[initArgMTU] = fmt.Sprintf("%d", deviceMTU)
 
 	if option.Config.EnableHostReachableServices {
 		args[initArgHostReachableServices] = "true"
+
 		if option.Config.EnableHostServicesUDP {
 			args[initArgHostReachableServicesUDP] = "true"
-		} else {
-			args[initArgHostReachableServicesUDP] = "false"
 		}
+
 		if option.Config.EnableHostServicesPeer {
 			args[initArgHostReachableServicesPeer] = "true"
-		} else {
-			args[initArgHostReachableServicesPeer] = "false"
 		}
-	} else {
-		args[initArgHostReachableServices] = "false"
-		args[initArgHostReachableServicesUDP] = "false"
-		args[initArgHostReachableServicesPeer] = "false"
 	}
 
 	devices := make([]netlink.Link, 0, len(option.Config.Devices))
@@ -318,28 +324,25 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 			}
 			devices = append(devices, link)
 		}
+
 		args[initArgDevices] = strings.Join(option.Config.Devices, ";")
-	} else {
-		args[initArgDevices] = "<nil>"
 	}
 
 	var mode baseDeviceMode
-	args[initArgTunnelMode] = "<nil>"
 	switch {
 	case option.Config.Tunnel != option.TunnelDisabled:
-		mode = tunnelMode
+		args[initArgMode] = string(tunnelMode)
 		args[initArgTunnelMode] = option.Config.Tunnel
+
 	case option.Config.DatapathMode == datapathOption.DatapathModeIpvlan:
-		mode = ipvlanMode
+		args[initArgMode] = string(ipvlanMode)
+
 	case option.Config.EnableHealthDatapath:
-		mode = option.DSRDispatchIPIP
+		args[initArgMode] = option.DSRDispatchIPIP
 		sysSettings = append(sysSettings,
 			sysctl.Setting{Name: "net.core.fb_tunnels_only_for_init_net",
 				Val: "2", IgnoreErr: true})
-	default:
-		mode = directMode
 	}
-	args[initArgMode] = string(mode)
 
 	if option.Config.Tunnel == option.TunnelDisabled && option.Config.EnableEgressGateway {
 		// Enable tunnel mode to vxlan if egress gateway is configured
@@ -349,28 +352,20 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 
 	if option.Config.EnableNodePort {
 		args[initArgNodePort] = "true"
-	} else {
-		args[initArgNodePort] = "false"
 	}
 
 	if option.Config.NodePortBindProtection {
 		args[initArgNodePortBind] = "true"
-	} else {
-		args[initArgNodePortBind] = "false"
 	}
-
-	args[initBPFCPU] = GetBPFCPU()
-	args[initArgNrCPUs] = fmt.Sprintf("%d", common.GetNumPossibleCPUs(log))
 
 	if option.Config.EnableEndpointRoutes {
 		args[initArgEndpointRoutes] = "true"
-	} else {
-		args[initArgEndpointRoutes] = "false"
 	}
 
+	// TODO(timo): This is fragile, clocksource enum should be a stringer or string map.
 	clockSource := []string{"ktime", "jiffies"}
 	log.WithFields(logrus.Fields{
-		logfields.BPFInsnSet:     args[initBPFCPU],
+		logfields.BPFInsnSet:     args[initArgBPFCPU],
 		logfields.BPFClockSource: clockSource[option.Config.ClockSource],
 	}).Info("Setting up BPF datapath")
 
@@ -393,8 +388,6 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 
 	if option.Config.InstallIptRules {
 		args[initArgProxyRule] = "true"
-	} else {
-		args[initArgProxyRule] = "false"
 	}
 
 	// "Legacy" datapath inizialization with the init.sh script
@@ -413,6 +406,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		log.WithError(err).Fatal("Failed to compile XDP program")
 	}
 
+	// Execute init.sh.
 	prog := filepath.Join(option.Config.BpfDir, "init.sh")
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Env = bpf.Environment()
