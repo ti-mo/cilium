@@ -228,12 +228,7 @@ func (l *Loader) ReinitializeXDP(ctx context.Context, o datapath.BaseProgramOwne
 // locally detected prefixes. It may be run upon initial Cilium startup, after
 // restore from a previous Cilium run, or during regular Cilium operation.
 func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, deviceMTU int, iptMgr datapath.IptablesManager, p datapath.Proxy) error {
-	var (
-		args []string
-		ret  error
-	)
-
-	args = make([]string, initArgMax)
+	args := make([]string, initArgMax)
 
 	sysSettings := []sysctl.Setting{
 		{Name: "net.core.bpf_jit_enable", Val: "1", IgnoreErr: true},
@@ -259,8 +254,8 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 
 		preFilter, err := prefilter.NewPreFilter()
 		if err != nil {
-			scopedLog.WithError(ret).Warn("Unable to init prefilter")
-			return ret
+			scopedLog.WithError(err).Warn("Unable to init prefilter")
+			return err
 		}
 
 		if err := writePreFilterHeader(preFilter, "./"); err != nil {
