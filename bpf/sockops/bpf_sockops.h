@@ -30,10 +30,10 @@ struct sock_key {
 	__u32 dport;
 } __packed;
 
-struct bpf_elf_map __section_maps SOCK_OPS_MAP = {
-	.type           = BPF_MAP_TYPE_SOCKHASH,
-	.size_key       = sizeof(struct sock_key),
-	.size_value     = sizeof(int),
-	.pinning        = PIN_GLOBAL_NS,
-	.max_elem       = SOCKOPS_MAP_SIZE,
-};
+struct {
+	__uint(type, BPF_MAP_TYPE_SOCKHASH);
+	__type(key, struct sock_key);
+	__type(value, int);
+	__uint(pinning, 1);
+	__uint(max_entries, SOCKOPS_MAP_SIZE);
+} SOCK_OPS_MAP __section_maps_btf;

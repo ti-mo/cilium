@@ -28,13 +28,13 @@
 	({ __u64 __x = (s) * KERNEL_HZ; __x; })
 
 /* Per-CPU ktime cache for faster clock access. */
-struct bpf_elf_map __section_maps cilium_ktime_cache = {
-	.type		= BPF_MAP_TYPE_PERCPU_ARRAY,
-	.size_key	= sizeof(__u32),
-	.size_value	= sizeof(__u64),
-	.pinning	= PIN_GLOBAL_NS,
-	.max_elem	= 1,
-};
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u64);
+	__uint(pinning, 1);
+	__uint(max_entries, 1);
+} cilium_ktime_cache __section_maps_btf;
 
 /* Currently supported clock types:
  *

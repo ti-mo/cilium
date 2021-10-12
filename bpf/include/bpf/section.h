@@ -18,6 +18,10 @@
 # define __section_maps			__section("maps")
 #endif
 
+#ifndef __section_maps_btf
+# define __section_maps_btf		__section(".maps")
+#endif
+
 #ifndef BPF_LICENSE
 # define BPF_LICENSE(NAME)				\
 	char ____license[] __section_license = NAME
