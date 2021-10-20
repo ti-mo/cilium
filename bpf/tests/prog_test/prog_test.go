@@ -25,11 +25,11 @@ import (
 	"github.com/cilium/cilium/pkg/types"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
+	"github.com/cilium/ebpf/rlimit"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 type ct4GlobalMap map[ctmap.CtKey4Global]ctmap.CtEntry
@@ -385,12 +385,8 @@ func TestCt(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	lim := unix.Rlimit{
-		Cur: unix.RLIM_INFINITY,
-		Max: unix.RLIM_INFINITY,
-	}
-	if err := unix.Setrlimit(unix.RLIMIT_MEMLOCK, &lim); err != nil {
-		log.Fatalf("setrlimit: %v", err)
+	if err := rlimit.RemoveMemlock(); err != nil {
+		log.Fatalf("remove memlock rlimit: %v", err)
 	}
 	os.Exit(m.Run())
 }
