@@ -73,7 +73,7 @@ require (
 	github.com/sasha-s/go-deadlock v0.3.1
 	github.com/servak/go-fastping v0.0.0-20160802140958-5718d12e20a0
 	github.com/shirou/gopsutil/v3 v3.21.7
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.8.1
@@ -89,7 +89,7 @@ require (
 	golang.org/x/crypto v0.0.0-20210503195802-e9a32991a82e
 	golang.org/x/net v0.0.0-20210504132125-bbd867fde50d
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210906170528-6f6e22806c34
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	golang.org/x/tools v0.1.5
 	golang.zx2c4.com/wireguard v0.0.0-20210427022245-097af6e1351b
