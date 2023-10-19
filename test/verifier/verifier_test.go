@@ -206,7 +206,7 @@ func TestVerifier(t *testing.T) {
 						m.Pinning = ebpf.PinNone
 					}
 
-					coll, err := bpf.LoadCollection(spec, ebpf.CollectionOptions{
+					coll, commit, err := bpf.LoadCollection(spec, ebpf.CollectionOptions{
 						// Enable verifier logs for successful loads.
 						// Use log level 1 since it's known by all target kernels.
 						Programs: ebpf.ProgramOptions{
@@ -243,6 +243,7 @@ func TestVerifier(t *testing.T) {
 						t.Fatal(err)
 					}
 					defer coll.Close()
+					defer commit()
 
 					// Print verifier stats appearing on the last line of the log, e.g.
 					// 'processed 12248 insns (limit 1000000) ...'.

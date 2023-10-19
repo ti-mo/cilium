@@ -28,7 +28,9 @@ import (
 	"github.com/cilium/cilium/pkg/time"
 )
 
-const qdiscClsact = "clsact"
+const (
+	qdiscClsact = "clsact"
+)
 
 func directionToParent(dir string) uint32 {
 	switch dir {
@@ -73,7 +75,7 @@ type progDefinition struct {
 // For example, this is the case with from-netdev and to-netdev. If eth0:to-netdev
 // gets its program and maps replaced and unpinned, its eth0:from-netdev counterpart
 // will miss tail calls (and drop packets) until it has been replaced as well.
-func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDefinition, xdpMode string) (_ func(), err error) {
+func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDefinition, xdpMode string) (func() error, error) {
 	// Avoid unnecessarily loading a prog.
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -151,7 +153,6 @@ func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDe
 
 	// Load the CollectionSpec into the kernel, picking up any pinned maps from
 	// bpffs in the process.
-	finalize := func() {}
 	pinPath := bpf.TCGlobalsPath()
 	opts := ebpf.CollectionOptions{
 		Maps: ebpf.MapOptions{PinPath: pinPath},
@@ -160,26 +161,8 @@ func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDe
 		return nil, fmt.Errorf("creating bpffs pin path: %w", err)
 	}
 	l.Debug("Loading Collection into kernel")
-	coll, err := bpf.LoadCollection(spec, opts)
-	if errors.Is(err, ebpf.ErrMapIncompatible) {
-		// Temporarily rename bpffs pins of maps whose definitions have changed in
-		// a new version of a datapath ELF.
-		l.Debug("Starting bpffs map migration")
-		if err := bpf.StartBPFFSMigration(bpf.TCGlobalsPath(), spec); err != nil {
-			return nil, fmt.Errorf("Failed to start bpffs map migration: %w", err)
-		}
+	coll, commit, err := bpf.LoadCollection(spec, opts)
 
-		finalize = func() {
-			l.Debug("Finalizing bpffs map migration")
-			if err := bpf.FinalizeBPFFSMigration(bpf.TCGlobalsPath(), spec, false); err != nil {
-				l.WithError(err).Error("Could not finalize bpffs map migration")
-			}
-		}
-
-		// Retry loading the Collection after starting map migration.
-		l.Debug("Retrying loading Collection into kernel after map migration")
-		coll, err = bpf.LoadCollection(spec, opts)
-	}
 	var ve *ebpf.VerifierError
 	if errors.As(err, &ve) {
 		if _, err := fmt.Fprintf(os.Stderr, "Verifier error: %s\nVerifier log: %+v\n", err, ve); err != nil {
@@ -189,7 +172,6 @@ func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDe
 	if err != nil {
 		return nil, fmt.Errorf("loading eBPF collection into the kernel: %w", err)
 	}
-	defer coll.Close()
 
 	// If an ELF contains one of the policy call maps, resolve and insert the
 	// programs it refers to into the map. This always needs to happen _before_
@@ -242,7 +224,7 @@ func replaceDatapath(ctx context.Context, ifName, objPath string, progs []progDe
 		scopedLog.Debug("Successfully attached program to interface")
 	}
 
-	return finalize, nil
+	return commit, nil
 }
 
 // resolveAndInsertCalls resolves a given slice of ebpf.MapKV containing u32 keys

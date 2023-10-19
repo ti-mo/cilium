@@ -432,7 +432,7 @@ func (l *Loader) reloadDatapath(ctx context.Context, ep datapath.Endpoint, dirs 
 			}
 		}
 
-		finalize, err := replaceDatapath(ctx, ep.InterfaceName(), objPath, progs, "")
+		commit, err := replaceDatapath(ctx, ep.InterfaceName(), objPath, progs, "")
 		if err != nil {
 			scopedLog := ep.Logger(Subsystem).WithFields(logrus.Fields{
 				logfields.Path: objPath,
@@ -446,7 +446,7 @@ func (l *Loader) reloadDatapath(ctx context.Context, ep datapath.Endpoint, dirs 
 			}
 			return err
 		}
-		defer finalize()
+		defer commit()
 	}
 
 	if ep.RequireEndpointRoute() {
@@ -478,11 +478,11 @@ func (l *Loader) replaceOverlayDatapath(ctx context.Context, cArgs []string, ifa
 		{progName: symbolToOverlay, direction: dirEgress},
 	}
 
-	finalize, err := replaceDatapath(ctx, iface, overlayObj, progs, "")
+	commit, err := replaceDatapath(ctx, iface, overlayObj, progs, "")
 	if err != nil {
 		log.WithField(logfields.Interface, iface).WithError(err).Fatal("Load overlay network failed")
 	}
-	finalize()
+	commit()
 
 	return nil
 }
