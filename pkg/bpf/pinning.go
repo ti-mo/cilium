@@ -33,15 +33,27 @@ func clearPinningFlag(spec *ebpf.MapSpec, flag ebpf.PinType) {
 	spec.Pinning = spec.Pinning &^ flag
 }
 
-// incompatibleMaps finds all MapSpecs in spec that are incompatible with their
-// pinned counterparts, *and removes the LIBBPF_PIN_BY_NAME flag*.
-// opts.Maps.PinPath must be specified.
+// validatePinningFlags rejects combinations of pinning flags that are incompatible.
+func validatePinningFlags(spec *ebpf.CollectionSpec) error {
+	var errs error
+	for name, m := range spec.Maps {
+		if hasPinningFlag(m, ebpf.PinByName) && hasPinningFlag(m, PinReplace) {
+			errs = errors.Join(errs, fmt.Errorf("map %s: flags LIBBPF_PIN_BY_NAME and CILIUM_PIN_REPLACE are mutually exclusive", name))
+		}
+	}
+	return errs
+}
+
+// incompatibleMaps returns the key names MapSpecs in spec with the
+// LIBBPF_PIN_BY_NAME pinning flag that are incompatible with their pinned
+// counterparts. Removes the LIBBPF_PIN_BY_NAME flag. opts.Maps.PinPath must be
+// specified.
 //
 // The slice of strings returned contains the keys used in Collection.Maps and
 // CollectionSpec.Maps, which can differ from the Map's Name field.
 func incompatibleMaps(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) ([]string, error) {
 	if opts.Maps.PinPath == "" {
-		return nil, nil
+		return nil, errors.New("missing opts.Maps.PinPath")
 	}
 
 	var incompatible []string
@@ -69,6 +81,19 @@ func incompatibleMaps(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) ([
 	}
 
 	return incompatible, nil
+}
+
+// pinReplaceMaps returns the key names of MapSpecs in spec with the
+// CILIUM_PIN_REPLACE pinning flag set. Clears the CILIUM_PIN_REPLACE flag.
+func pinReplaceMaps(spec *ebpf.CollectionSpec) []string {
+	var toReplace []string
+	for key, ms := range spec.Maps {
+		if hasPinningFlag(ms, PinReplace) {
+			toReplace = append(toReplace, key)
+			clearPinningFlag(ms, PinReplace)
+		}
+	}
+	return toReplace
 }
 
 // commitMapPins commits maps tagged with `CILIUM_PIN_REPLACE` to bpffs. This is

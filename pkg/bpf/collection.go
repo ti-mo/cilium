@@ -119,6 +119,10 @@ func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*eb
 		return nil, nil, errors.New("can't load nil CollectionSpec")
 	}
 
+	if err := validatePinningFlags(spec); err != nil {
+		return nil, nil, fmt.Errorf("validating pinning flags: %w", err)
+	}
+
 	// Copy spec so the modifications below don't affect the input parameter,
 	// allowing the spec to be safely re-used by the caller.
 	spec = spec.Copy()
@@ -141,21 +145,16 @@ func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*eb
 		opts.Programs.LogSize = 4_194_303
 	}
 
-	// Collect key names of maps with the CILIUM_PIN_REPLACE pinning flag and clear it.
-	var toReplace []string
-	for key, ms := range spec.Maps {
-		if hasPinningFlag(ms, PinReplace) {
-			toReplace = append(toReplace, key)
-			clearPinningFlag(ms, PinReplace)
-		}
-	}
+	// Find and strip all CILIUM_PIN_REPLACE pinning flags before creating the
+	// Collection.
+	toReplace := pinReplaceMaps(spec)
 
 	attempt := 1
 	for {
 		coll, err := ebpf.NewCollectionWithOptions(spec, opts)
 		if errors.Is(err, ebpf.ErrMapIncompatible) {
-			// Collect key names of maps that are not compatible with their pinned
-			// counterparts and remove their pinning flags.
+			// Remove pinning flags of maps that are not compatible with their pinned
+			// counterparts.
 			incompatible, err := incompatibleMaps(spec, opts)
 			if err != nil {
 				return nil, nil, fmt.Errorf("finding incompatible maps: %w", err)
