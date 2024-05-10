@@ -229,11 +229,14 @@ func (l *loader) reinitializeIPSec(ctx context.Context) error {
 			log.WithField(logfields.Interface, iface).WithError(err).Error("Load encryption network failed")
 			// collect errors, but keep trying replacing other interfaces.
 			errs = errors.Join(errs, err)
-		} else {
-			log.WithField(logfields.Interface, iface).Info("Encryption network program (re)loaded")
-			// Defer map removal until all interfaces' progs have been replaced.
-			defer finalize()
+			continue
 		}
+
+		log.WithField(logfields.Interface, iface).Info("Encryption network program (re)loaded")
+
+		// Defer map removal until all interfaces' progs have been replaced.
+		//TODO(tb): Attaching multiple devices needs to be pushed into replaceDatapath..
+		defer finalizeee()
 	}
 
 	if errs != nil {

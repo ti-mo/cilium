@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/vishvananda/netlink"
@@ -28,7 +27,9 @@ import (
 	"github.com/cilium/cilium/pkg/time"
 )
 
-const qdiscClsact = "clsact"
+const (
+	qdiscClsact = "clsact"
+)
 
 func directionToParent(dir string) uint32 {
 	switch dir {
@@ -67,8 +68,7 @@ type replaceDatapathOptions struct {
 // For example, this is the case with from-netdev and to-netdev. If eth0:to-netdev
 // gets its program and maps replaced and unpinned, its eth0:from-netdev counterpart
 // will miss tail calls (and drop packets) until it has been replaced as well.
-func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func(), err error) {
-	// Avoid unnecessarily loading a prog.
+func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func() error, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -92,45 +92,10 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 		return nil, fmt.Errorf("loading eBPF ELF %s: %w", opts.elf, err)
 	}
 
-	revert := func() {
-		// Program replacement unsuccessful, revert bpffs migration.
-		l.Debug("Reverting bpffs map migration")
-		if err := bpf.FinalizeBPFFSMigration(bpf.TCGlobalsPath(), spec, true); err != nil {
-			l.WithError(err).Error("Failed to revert bpffs map migration")
-		}
-	}
-
 	for _, prog := range opts.programs {
 		if spec.Programs[prog.progName] == nil {
 			return nil, fmt.Errorf("no program %s found in eBPF ELF", prog.progName)
 		}
-	}
-
-	// Unconditionally repin cilium_calls_* maps to prevent them from being
-	// repopulated by the loader.
-	for key, ms := range spec.Maps {
-		if !strings.HasPrefix(ms.Name, "cilium_calls_") {
-			continue
-		}
-
-		if err := bpf.RepinMap(bpf.TCGlobalsPath(), key, ms); err != nil {
-			return nil, fmt.Errorf("repinning map %s: %w", key, err)
-		}
-
-		defer func() {
-			revert := false
-			// This captures named return variable err.
-			if err != nil {
-				revert = true
-			}
-
-			if err := bpf.FinalizeMap(bpf.TCGlobalsPath(), key, revert); err != nil {
-				l.WithError(err).Error("Could not finalize map")
-			}
-		}()
-
-		// Only one cilium_calls_* per collection, we can stop here.
-		break
 	}
 
 	// Inserting a program into these maps will immediately cause other BPF
@@ -149,7 +114,6 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 
 	// Load the CollectionSpec into the kernel, picking up any pinned maps from
 	// bpffs in the process.
-	finalize := func() {}
 	pinPath := bpf.TCGlobalsPath()
 	collOpts := ebpf.CollectionOptions{
 		Maps: ebpf.MapOptions{PinPath: pinPath},
@@ -158,26 +122,8 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 		return nil, fmt.Errorf("creating bpffs pin path: %w", err)
 	}
 	l.Debug("Loading Collection into kernel")
-	coll, err := bpf.LoadCollection(spec, collOpts)
-	if errors.Is(err, ebpf.ErrMapIncompatible) {
-		// Temporarily rename bpffs pins of maps whose definitions have changed in
-		// a new version of a datapath ELF.
-		l.Debug("Starting bpffs map migration")
-		if err := bpf.StartBPFFSMigration(bpf.TCGlobalsPath(), spec); err != nil {
-			return nil, fmt.Errorf("Failed to start bpffs map migration: %w", err)
-		}
 
-		finalize = func() {
-			l.Debug("Finalizing bpffs map migration")
-			if err := bpf.FinalizeBPFFSMigration(bpf.TCGlobalsPath(), spec, false); err != nil {
-				l.WithError(err).Error("Could not finalize bpffs map migration")
-			}
-		}
-
-		// Retry loading the Collection after starting map migration.
-		l.Debug("Retrying loading Collection into kernel after map migration")
-		coll, err = bpf.LoadCollection(spec, collOpts)
-	}
+	coll, commit, err := bpf.LoadCollection(spec, collOpts)
 	var ve *ebpf.VerifierError
 	if errors.As(err, &ve) {
 		if _, err := fmt.Fprintf(os.Stderr, "Verifier error: %s\nVerifier log: %+v\n", err, ve); err != nil {
@@ -187,7 +133,6 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 	if err != nil {
 		return nil, fmt.Errorf("loading eBPF collection into the kernel: %w", err)
 	}
-	defer coll.Close()
 
 	// If an ELF contains one of the policy call maps, resolve and insert the
 	// programs it refers to into the map. This always needs to happen _before_
@@ -204,14 +149,12 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 	// first, or we risk missing tail calls.
 	if len(policyProgs) != 0 {
 		if err := resolveAndInsertCalls(coll, policymap.PolicyCallMapName, policyProgs); err != nil {
-			revert()
 			return nil, fmt.Errorf("inserting policy programs: %w", err)
 		}
 	}
 
 	if len(egressPolicyProgs) != 0 {
 		if err := resolveAndInsertCalls(coll, policymap.PolicyEgressCallMapName, egressPolicyProgs); err != nil {
-			revert()
 			return nil, fmt.Errorf("inserting egress policy programs: %w", err)
 		}
 	}
@@ -234,13 +177,12 @@ func replaceDatapath(ctx context.Context, opts replaceDatapathOptions) (_ func()
 		}
 
 		if err != nil {
-			revert()
 			return nil, fmt.Errorf("program %s: %w", prog.progName, err)
 		}
 		scopedLog.Debug("Successfully attached program to interface")
 	}
 
-	return finalize, nil
+	return commit, nil
 }
 
 // resolveAndInsertCalls resolves a given slice of ebpf.MapKV containing u32 keys

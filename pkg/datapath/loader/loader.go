@@ -517,7 +517,7 @@ func (l *loader) reloadHostDatapath(ctx context.Context, ep datapath.Endpoint, o
 			}
 		}
 
-		finalize, err := replaceDatapath(ctx,
+		commit, err := replaceDatapath(ctx,
 			replaceDatapathOptions{
 				device:   device,
 				elf:      netdevObjPath,
@@ -536,7 +536,9 @@ func (l *loader) reloadHostDatapath(ctx context.Context, ep datapath.Endpoint, o
 			}
 			return err
 		}
-		defer finalize()
+		if err := commit(); err != nil {
+			return fmt.Errorf("commit attaching %s to device %s: %w", netdevObjPath, device, err)
+		}
 	}
 
 	// call at the end of the function so that we can easily detect if this removes necessary
@@ -587,7 +589,7 @@ func (l *loader) reloadDatapath(ctx context.Context, ep datapath.Endpoint, dirs 
 			}
 		}
 
-		finalize, err := replaceDatapath(ctx,
+		commit, err := replaceDatapath(ctx,
 			replaceDatapathOptions{
 				device:   device,
 				elf:      objPath,
@@ -609,7 +611,7 @@ func (l *loader) reloadDatapath(ctx context.Context, ep datapath.Endpoint, dirs 
 			}
 			return err
 		}
-		defer finalize()
+		defer commit()
 	}
 
 	if ep.RequireEndpointRoute() {
@@ -646,7 +648,7 @@ func (l *loader) replaceOverlayDatapath(ctx context.Context, cArgs []string, ifa
 		{progName: symbolToOverlay, direction: dirEgress},
 	}
 
-	finalize, err := replaceDatapath(ctx,
+	commit, err := replaceDatapath(ctx,
 		replaceDatapathOptions{
 			device:   iface,
 			elf:      overlayObj,
@@ -658,7 +660,7 @@ func (l *loader) replaceOverlayDatapath(ctx context.Context, cArgs []string, ifa
 	if err != nil {
 		log.WithField(logfields.Interface, iface).WithError(err).Fatal("Load overlay network failed")
 	}
-	finalize()
+	commit()
 
 	return nil
 }

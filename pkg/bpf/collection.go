@@ -233,6 +233,8 @@ func iproute2Compat(spec *ebpf.CollectionSpec) error {
 }
 
 // LoadCollection loads the given spec into the kernel with the specified opts.
+// Returns a function that must be called after the Collection's entrypoints
+// are attached to their respective kernel hooks.
 //
 // The value given in ProgramOptions.LogSize is used as the starting point for
 // sizing the verifier's log buffer and defaults to 4MiB. On each retry, the
@@ -244,9 +246,9 @@ func iproute2Compat(spec *ebpf.CollectionSpec) error {
 // MapSpecs that differ (type/key/value/max/flags) from their pinned versions
 // will result in an ebpf.ErrMapIncompatible here and the map must be removed
 // before loading the CollectionSpec.
-func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*ebpf.Collection, error) {
+func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*ebpf.Collection, func() error, error) {
 	if spec == nil {
-		return nil, errors.New("can't load nil CollectionSpec")
+		return nil, nil, errors.New("can't load nil CollectionSpec")
 	}
 
 	// Copy spec so the modifications below don't affect the input parameter,
@@ -254,7 +256,7 @@ func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*eb
 	spec = spec.Copy()
 
 	if err := inlineGlobalData(spec); err != nil {
-		return nil, fmt.Errorf("inlining global data: %w", err)
+		return nil, nil, fmt.Errorf("inlining global data: %w", err)
 	}
 
 	// Set initial size of verifier log buffer.
@@ -271,18 +273,47 @@ func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*eb
 		opts.Programs.LogSize = 4_194_303
 	}
 
+	// // Find and strip all CILIUM_PIN_REPLACE pinning flags before creating the
+	// // Collection.
+	// toReplace := pinReplaceMaps(spec)
+
+	// Unflag pinning for specific maps that always need to be replaced.
+	toReplace := unflagCallsMaps(spec)
+
 	attempt := 1
 	for {
 		coll, err := ebpf.NewCollectionWithOptions(spec, opts)
+		if errors.Is(err, ebpf.ErrMapIncompatible) {
+			// Remove pinning flags of maps that are not compatible with their pinned
+			// counterparts.
+			incompatible, ierr := unflagIncompatibleMaps(spec, opts)
+			if ierr != nil {
+				return nil, nil, fmt.Errorf("finding incompatible maps: %w", err)
+			}
+			toReplace = append(toReplace, incompatible...)
+
+			// Retry loading the Collection with necessary pinning flags removed.
+			coll, err = ebpf.NewCollectionWithOptions(spec, opts)
+		}
+
 		if err == nil {
-			return coll, nil
+			// Return a function to the caller that must be invoked after attaching the
+			// Collection's entrypoint programs to their respective hooks.
+			commit := func() error {
+				// Commit maps that need their bpffs pins replaced.
+				if err := commitMapPins(toReplace, spec, coll, opts); err != nil {
+					return fmt.Errorf("replacing map pins on bpffs: %w", err)
+				}
+				return nil
+			}
+			return coll, commit, nil
 		}
 
 		// Bump LogSize and retry if there's a truncated VerifierError.
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) && ve.Truncated {
 			if attempt >= 5 {
-				return nil, fmt.Errorf("%d-byte truncated verifier log after %d attempts: %w", opts.Programs.LogSize, attempt, err)
+				return nil, nil, fmt.Errorf("%d-byte truncated verifier log after %d attempts: %w", opts.Programs.LogSize, attempt, err)
 			}
 
 			// Retry with non-zero log level to avoid retrying with log disabled.
@@ -298,7 +329,7 @@ func LoadCollection(spec *ebpf.CollectionSpec, opts ebpf.CollectionOptions) (*eb
 		}
 
 		// Not a truncated VerifierError.
-		return nil, err
+		return nil, nil, err
 	}
 }
 

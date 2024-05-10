@@ -66,27 +66,7 @@ func Enable(sysctl sysctl.Sysctl) (err error) {
 		return fmt.Errorf("failed to load collection spec for bpf_sock.o: %w", err)
 	}
 
-	if err := bpf.StartBPFFSMigration(bpf.TCGlobalsPath(), spec); err != nil {
-		return fmt.Errorf("failed to start bpffs map migration: %w", err)
-	}
-
-	// This captures named return variable err.
-	defer func() {
-		if err != nil {
-			log.WithError(err).Debug("Reverting bpffs map migration")
-			if e := bpf.FinalizeBPFFSMigration(bpf.TCGlobalsPath(), spec, true); e != nil {
-				log.WithError(e).Error("Could not revert bpffs map migration")
-				return
-			}
-		}
-
-		log.Debug("Finalizing bpffs map migration")
-		if e := bpf.FinalizeBPFFSMigration(bpf.TCGlobalsPath(), spec, false); e != nil {
-			log.WithError(e).Error("Could not finalize bpffs map migration")
-		}
-	}()
-
-	coll, err := bpf.LoadCollection(spec, ebpf.CollectionOptions{
+	coll, commit, err := bpf.LoadCollection(spec, ebpf.CollectionOptions{
 		Maps: ebpf.MapOptions{PinPath: bpf.TCGlobalsPath()},
 	})
 	var ve *ebpf.VerifierError
@@ -99,6 +79,7 @@ func Enable(sysctl sysctl.Sysctl) (err error) {
 		return fmt.Errorf("failed loading eBPF collection into the kernel: %w", err)
 	}
 	defer coll.Close()
+	defer commit()
 
 	// Map a program name to its enabled status. Programs disabled by default.
 	enabled := make(map[string]bool)
