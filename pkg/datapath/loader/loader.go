@@ -333,6 +333,11 @@ func (l *loader) reloadHostDatapath(ep datapath.Endpoint, spec *ebpf.CollectionS
 	}
 	defer coll.Close()
 
+	// Insert host endpoint policy program.
+	if err := coll.Maps[policymap.PolicyCallMapName].Update(uint32(ep.GetID()), coll.Programs["handle_lxc_traffic"], ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("inserting host endpoint policy program: %w", err)
+	}
+
 	// Attach cil_to_host to cilium_host ingress.
 	if err := attachSKBProgram(host, coll.Programs[symbolToHostEp], symbolToHostEp,
 		bpffsDeviceLinksDir(bpf.CiliumPath(), host), netlink.HANDLE_MIN_INGRESS, option.Config.EnableTCX); err != nil {
@@ -447,23 +452,6 @@ func (l *loader) reloadHostDatapath(ep datapath.Endpoint, spec *ebpf.CollectionS
 func (l *loader) reloadDatapath(ep datapath.Endpoint, spec *ebpf.CollectionSpec) error {
 	device := ep.InterfaceName()
 
-	// Replace all occurrences of the template endpoint ID with the real ID.
-	for _, name := range []string{
-		policymap.PolicyCallMapName,
-		policymap.PolicyEgressCallMapName,
-	} {
-		pm, ok := spec.Maps[name]
-		if !ok {
-			continue
-		}
-
-		for i, kv := range pm.Contents {
-			if kv.Key == (uint32)(templateLxcID) {
-				pm.Contents[i].Key = (uint32)(ep.GetID())
-			}
-		}
-	}
-
 	if ep.IsHost() {
 		devices := l.nodeConfig.Load().DeviceNames()
 
@@ -480,6 +468,23 @@ func (l *loader) reloadDatapath(ep datapath.Endpoint, spec *ebpf.CollectionSpec)
 			return err
 		}
 		defer coll.Close()
+
+		// Insert policy programs before attaching entrypoints to tc hooks.
+		// Inserting a policy program is considered an attachment, since it makes
+		// the code reachable by bpf_host when it evaluates policy for the endpoint.
+		// All internal tail call plumbing needs to be done before this point.
+		// If the agent dies uncleanly after the first program has been inserted,
+		// the endpoint's connectivity will be partially broken or exhibit undefined
+		// behaviour like missed tail calls or drops.
+		if err := coll.Maps[policymap.PolicyCallMapName].Update(uint32(ep.GetID()), coll.Programs["handle_policy"], ebpf.UpdateAny); err != nil {
+			return fmt.Errorf("inserting endpoint policy program: %w", err)
+		}
+
+		if prog := coll.Programs["handle_policy_egress"]; prog != nil {
+			if err := coll.Maps[policymap.PolicyEgressCallMapName].Update(uint32(ep.GetID()), prog, ebpf.UpdateAny); err != nil {
+				return fmt.Errorf("inserting endpoint egress policy program: %w", err)
+			}
+		}
 
 		iface, err := netlink.LinkByName(device)
 		if err != nil {
