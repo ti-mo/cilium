@@ -63,10 +63,10 @@ static __always_inline __maybe_unused int
 get_identity(const struct __sk_buff *ctx)
 {
 	__u32 cluster_id_lower = ctx->mark & CLUSTER_ID_LOWER_MASK;
-	__u32 cluster_id_upper = (ctx->mark & get_cluster_id_upper_mask()) >> (8 + IDENTITY_LEN);
+	__u32 cluster_id_upper = (ctx->mark & get_cluster_id_upper_mask()) >> (8 + get_identity_len());
 	__u32 identity = (ctx->mark >> 16) & IDENTITY_MAX;
 
-	return (cluster_id_lower | cluster_id_upper) << IDENTITY_LEN | identity;
+	return (cluster_id_lower | cluster_id_upper) << get_identity_len() | identity;
 }
 
 /**
@@ -98,9 +98,9 @@ get_epid(const struct __sk_buff *ctx)
 static __always_inline __maybe_unused void
 set_identity_mark(struct __sk_buff *ctx, __u32 identity, __u32 magic)
 {
-	__u32 cluster_id = (identity >> IDENTITY_LEN) & CLUSTER_ID_MAX;
+	__u32 cluster_id = (identity >> get_identity_len()) & CLUSTER_ID_MAX;
 	__u32 cluster_id_lower = cluster_id & 0xFF;
-	__u32 cluster_id_upper = ((cluster_id & 0xFFFFFF00) << (8 + IDENTITY_LEN));
+	__u32 cluster_id_upper = ((cluster_id & 0xFFFFFF00) << (8 + get_identity_len()));
 
 	ctx->mark = (magic & MARK_MAGIC_KEY_MASK);
 	ctx->mark &= MARK_MAGIC_KEY_MASK;
@@ -120,7 +120,7 @@ static __always_inline __maybe_unused void
 ctx_set_cluster_id_mark(struct __sk_buff *ctx, __u32 cluster_id)
 {
 	__u32 cluster_id_lower = (cluster_id & 0xFF);
-	__u32 cluster_id_upper = ((cluster_id & 0xFFFFFF00) << (8 + IDENTITY_LEN));
+	__u32 cluster_id_upper = ((cluster_id & 0xFFFFFF00) << (8 + get_identity_len()));
 
 	ctx->mark |=  cluster_id_lower | cluster_id_upper | MARK_MAGIC_CLUSTER_ID;
 }
@@ -130,7 +130,7 @@ ctx_get_cluster_id_mark(struct __sk_buff *ctx)
 {
 	__u32 ret = 0;
 	__u32 cluster_id_lower = ctx->mark & CLUSTER_ID_LOWER_MASK;
-	__u32 cluster_id_upper = (ctx->mark & get_cluster_id_upper_mask()) >> (8 + IDENTITY_LEN);
+	__u32 cluster_id_upper = (ctx->mark & get_cluster_id_upper_mask()) >> (8 + get_identity_len());
 
 	if ((ctx->mark & MARK_MAGIC_CLUSTER_ID) != MARK_MAGIC_CLUSTER_ID)
 		return ret;
