@@ -13,9 +13,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/cilium/ebpf"
+
 	"github.com/cilium/cilium/pkg/bpf"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
-	"github.com/cilium/cilium/pkg/ebpf"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/types"

@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/cilium/ebpf"
+
 	"github.com/cilium/cilium/pkg/bpf"
-	"github.com/cilium/cilium/pkg/ebpf"
 	"github.com/cilium/cilium/pkg/types"
 )
 

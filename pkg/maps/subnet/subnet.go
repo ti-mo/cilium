@@ -9,11 +9,11 @@ import (
 	"net/netip"
 	"unsafe"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/hive/cell"
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/bpf"
-	"github.com/cilium/cilium/pkg/ebpf"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/types"
 )

@@ -9,9 +9,10 @@ import (
 	"github.com/cilium/hive/cell"
 	"golang.org/x/sys/unix"
 
+	"github.com/cilium/ebpf"
+
 	"github.com/cilium/cilium/pkg/bpf"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
-	"github.com/cilium/cilium/pkg/ebpf"
 	"github.com/cilium/cilium/pkg/option"
 )
 
